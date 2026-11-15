@@ -141,7 +141,8 @@ def plan_dispatch(world, place, result, clock):
 
     # ---- 2. the hospital
     needs = [triage.FACILITY_NAMES[f] for f in triage.required_facilities(care, priority)]
-    reasons.append("Hospitals (need " + ", ".join(needs) + " and a free bed):")
+    survey_note = " Beds and facilities are SAMPLE data." if world.get("sample_survey") else ""
+    reasons.append("Hospitals (need " + ", ".join(needs) + " and a free bed)." + survey_note)
     best_hospital, best_route2, best_score = None, None, None
     for name in sorted(world["hospitals"]):
         hospital = world["hospitals"][name]

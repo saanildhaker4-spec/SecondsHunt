@@ -335,5 +335,60 @@ class RealSurveyTests(unittest.TestCase):
             app["root"].destroy()
 
 
+
+@unittest.skipUnless(can_open_a_window(), "no display available for the window tests")
+class DuringAVoiceCallTests(unittest.TestCase):
+    """While a voice call is running the rest of the window must not interfere."""
+
+    def setUp(self):
+        self.world = real_world()
+        self.app = gui.build_window(self.world)
+        self.root = self.app["root"]
+        self.root.update()
+        patch = mock.patch.object(gui.messagebox, "askyesno", return_value=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.addCleanup(self.root.destroy)
+
+    def test_dispatch_is_refused_during_a_call(self):
+        self.app["place"] = sorted(self.world["junctions"])[3]
+        self.app["in_call"] = True
+        self.assertFalse(gui.on_dispatch())
+        self.assertEqual(self.world["log"], [])
+        self.assertIn("voice call is running", self.app["status"].cget("text"))
+
+    def test_the_location_cannot_change_during_a_call(self):
+        names = sorted(self.world["junctions"])
+        self.app["place"] = names[3]
+        self.app["in_call"] = True
+        x, y = gui.positions[names[8]]
+        self.app["canvas"].event_generate("<Button-1>", x=round(x), y=round(y))
+        self.root.update()
+        self.assertEqual(self.app["place"], names[3])
+
+    def test_reset_is_refused_during_a_call(self):
+        self.world["blocked"].add(next(iter(self.world["roads"])))
+        self.app["in_call"] = True
+        gui.on_reset_all()
+        self.assertEqual(len(self.world["blocked"]), 1)
+
+    def test_the_comparison_line_does_not_call_a_real_hospital_wrong(self):
+        self.app["use_now"].set(0)
+        gui.on_time_change()
+        self.app["hour"].set(9)
+        gui.on_time_change()
+        x, y = gui.positions["Kanakapura Rd & 13th Cross Rd"]
+        self.app["canvas"].event_generate("<Button-1>", x=round(x), y=round(y))
+        self.root.update()
+        self.app["answers"]["conscious"].set(0)
+        self.app["answers"]["chest_pain"].set(1)
+        gui.on_answer_change()
+        self.assertTrue(gui.on_dispatch())
+        text = self.app["result"].get("1.0", "end")
+        self.assertIn("NOT SUITABLE (survey says: no cath lab, no ICU)", text)
+        self.assertNotIn("WRONG", text)
+        self.assertIn("SAMPLE data", text)
+
+
 if __name__ == "__main__":
     unittest.main()

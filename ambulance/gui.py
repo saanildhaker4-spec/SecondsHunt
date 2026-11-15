@@ -303,6 +303,9 @@ def on_map_click(event):
     kind, value = found
 
     if kind == "place":
+        if app["in_call"]:
+            say("A voice call is running: the location cannot change now.")
+            return
         app["place"] = value
         say("Emergency location: " + value)
     elif kind == "road":
@@ -366,6 +369,9 @@ def on_dispatch():
     """The DISPATCH button."""
     world = app["world"]
     place = app["place"]
+    if app["in_call"]:
+        say("A voice call is running. Finish it or press STOP VOICE CALL first.")
+        return False
     if place is None:
         messagebox.showinfo("Emergency location", "First click the emergency's junction on the map.")
         return False
@@ -411,7 +417,9 @@ def on_dispatch():
             if len(baseline["missing"]) == 0:
                 text = text + " to " + baseline["hospital"]
             else:
-                text = text + " to " + baseline["hospital"] + " - WRONG: " + ", ".join(baseline["missing"])
+                note = "survey says" if world["sample_survey"] else "unsuitable"
+                text = (text + " to " + baseline["hospital"] + " - NOT SUITABLE (" + note + ": "
+                        + ", ".join(baseline["missing"]) + ")")
         lines.append(text)
     lines.append("")
     lines.append("WHY:")
@@ -552,6 +560,9 @@ def on_change_beds(change):
 
 
 def on_reset_all():
+    if app["in_call"]:
+        say("A voice call is running. Finish it or press STOP VOICE CALL first.")
+        return
     if not messagebox.askyesno("Reset everything",
                                "Free all ambulances, open all roads, restore the surveyed beds "
                                "and clear the call log?"):

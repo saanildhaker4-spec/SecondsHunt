@@ -97,17 +97,21 @@ The map files are in `data/`:
 - `data/jayanagar.json` - the map built from OpenStreetMap (32 junctions, 71 roads, 16 hospitals).
 - `data/survey.json` - the **hospital survey and ambulance stations**. Replace the sample beds, waiting times, facilities and stations with real values and the program uses them (the Fleet tab then stops showing the "SAMPLE" warning once `"sample"` is set to `false`).
 
+The format (the hospital name and numbers below are placeholders; use the exact hospital names that are in `data/survey.json`):
+
 ```json
 {
   "sample": false,
   "hospitals": {
-    "Sri Jayadeva Institute Of Cardiology": {
-      "beds_free": 6, "wait": 20, "facilities": ["general", "cath_lab", "icu"]
+    "<hospital name exactly as in survey.json>": {
+      "beds_free": 4, "wait": 15, "facilities": ["general", "icu"]
     }
   },
-  "ambulances": [ {"name": "Ambulance 1", "base": "Outer Ring Rd & Bannerghatta Rd"} ]
+  "ambulances": [ {"name": "Ambulance 1", "base": "<a junction name from jayanagar.json>"} ]
 }
 ```
+
+**Hospital names are real, their capabilities here are not.** The names and positions come from OpenStreetMap, but the beds and facilities attached to them are invented sample values, so a statement such as "hospital X has no cath lab" in this program means only "the sample survey lists it without one". Do not treat it as a fact about the hospital. If you prefer not to show real names next to invented data, replace the names in `data/jayanagar.json` and `data/survey.json` with your own labels.
 
 Facilities are `general`, `trauma_unit`, `cath_lab`, `stroke_unit`, `icu`, `blood_bank` and `ct_scan`. An ambulance `base` must be one of the junction names in `data/jayanagar.json`.
 
@@ -127,10 +131,10 @@ All at 09:00 (rush hour), with the sample survey. Times are minutes: usual / wor
 
 | Case | This program | Plain "nearest" rule |
 |---|---|---|
-| **Heart attack** (unconscious, chest pain) at *Kanakapura Rd & 13th Cross Rd* | Ambulance 5, **8.8 / 10.3**, to Jayanagar heart Centre | Ambulance 1, **7.8 / 13.4**, to AMC Multispeciality Hospital, which has **no cath lab and no ICU** |
+| **Heart attack** (unconscious, chest pain) at *Kanakapura Rd & 13th Cross Rd* | Ambulance 5, **8.8 / 10.3**, to Jayanagar heart Centre | Ambulance 1, **7.8 / 13.4**, to AMC Multispeciality Hospital, which the **sample survey lists without a cath lab and an ICU** |
 | Same place, caller **not in danger** | Ambulance 1, **7.8 / 13.4** (the quick road is fine for a priority 3 case) | the same |
-| **Stroke** at *Bannerghatta Rd & Swagath Rd* | to NIMHANS Emergency Block | to Sagar Hospitals, which has **no stroke unit** |
-| **Minor case**, nearest hospital full, at 14:00 at *Bannerghatta Rd & New MICO Link Rd* | to NIMHANS Emergency Block | to Sree Venkateshwara Speciality Hospital, which has **no free bed** |
+| **Stroke** at *Bannerghatta Rd & Swagath Rd* | to NIMHANS Emergency Block | to Sagar Hospitals, which the **sample survey lists without a stroke unit** |
+| **Minor case**, nearest hospital full, at 14:00 at *Bannerghatta Rd & New MICO Link Rd* | to NIMHANS Emergency Block | to Sree Venkateshwara Speciality Hospital, which the **sample survey lists with no free bed** |
 | **Injury** at *Marenahalli Rd & 11th Main Rd*, then close *Ayodhyarama Rd* | **6.1 / 8.4** over Ayodhyarama Rd, then **6.5 / 8.7** by 9th Cross Rd and 24th Main Rd | (the same, the roads differ only when closed) |
 
 ## How much difference does the priority make?
@@ -141,7 +145,7 @@ Priority 1 prices roads by their worst case, priority 3 by their usual time. Ove
 - in **53** of those the reliable road has a clearly better worst case (on average 1.3 minutes, up to 4.3 minutes), and in none is it worse;
 - choosing the reliable road costs 0.5 minutes of usual time on average (at most 3.0 minutes).
 
-So the effect is real but modest, and it rests on **modelled** variability (the assumed delay of each real traffic signal). With real traffic data the numbers would change. These results are on synthetic travel times and are not measurements of real Bangalore traffic.
+So the effect is real but modest, and it rests on **modelled** variability (the assumed delay of each real traffic signal). To be open about how that came about: with a time model based only on road class and length, priority made almost no difference (the reliable road was clearly better in only 6 pairs, by at most 0.1 minutes). The figures above appeared after the model was given a delay for every real traffic signal and speed bump on a road; the size of those delays is an assumption chosen by the authors, not a measurement. With real traffic data the numbers would change. These results are on synthetic travel times and are not measurements of real Bangalore traffic.
 
 ## Project layout
 
@@ -157,7 +161,7 @@ ambulance/
     voice.py            spoken questions (Windows), voice_helper.ps1
     gui.py              the desktop window
 data/                   jayanagar.json (map), survey.json (hospital survey, sample)
-tests/                  117 automated tests
+tests/                  121 automated tests
 docs/screenshot.png
 ```
 
