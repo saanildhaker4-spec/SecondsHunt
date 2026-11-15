@@ -45,6 +45,64 @@ The care type is chosen in this order: injury or heavy bleeding means **accident
 
 The triage rules and facility requirements are a simplified example written for this project. **They are not a real medical protocol.**
 
+## How the routing works (Dijkstra on a time-dependent multigraph)
+
+The route finder is `find_route` in `city_engine.py`. It is **Dijkstra's shortest-path algorithm written by hand** with plain loops and dictionaries (no routing library such as NetworkX is used), extended in two ways: roads are a multigraph, and a road's cost depends on the time of day.
+
+### The basic idea of Dijkstra
+
+Dijkstra finds the cheapest way from a start junction to every other junction, working outwards from the start:
+
+1. Give every junction a *cost so far*: 0 for the start, "unknown" for the rest.
+2. Pick the junction with the **lowest cost so far that is not finished yet**. Its cost can no longer be improved, because every road costs a positive amount, so any other way to reach it must pass through a junction that is at least as expensive. Mark it finished.
+3. For every road leaving that junction, work out the cost of reaching the road's other end *through this junction*. If that is cheaper than what we knew, remember the new cost and which road we used to get there.
+4. Repeat from step 2. Stop as soon as the junction we pick is the destination.
+5. Walk backwards from the destination, following the remembered roads, to rebuild the route.
+
+The code keeps these in three dictionaries: `best_cost` (cost so far), `came_from` (the road used to arrive) and `clock_at` (the time of day we arrive), plus a set `finished`.
+
+### What makes it a multigraph
+
+Between two neighbouring junctions there can be **several roads**. `roads[(a, b)]` holds a list of road options, and step 3 loops over *every* option in that list, so the cheapest option wins each time. A pair of parallel roads is built as one quick-but-unpredictable road and one longer, steady road, so the choice between them is a real decision.
+
+### What makes it time-dependent
+
+Each road stores `(average, extra)` minutes for night, day and rush hour. When the search leaves a junction it first works out the time of day we reach it (`clock_at`) and looks up the traffic period for that moment, so the same road can cost different amounts depending on when the ambulance gets there. The clock moves forward by the road's average time each step.
+
+### The cost of a road depends on the priority
+
+`road_cost` turns the `(average, extra)` pair into one number. The mode comes from the triage priority:
+
+| Mode | Cost of a road | Used for |
+|---|---|---|
+| `distance` | its length in km | the baseline ("nearest by distance") |
+| `average` | average | priority 3 |
+| `balanced` | average + extra / 2 | priority 2 |
+| `worst_case` | average + extra | priority 1 |
+
+The algorithm itself never changes; only the number each road is given does. That is how one routine serves both the baseline and the smart dispatcher.
+
+### Worked example
+
+Rush hour in the fixed city, from Race Course to Majestic. Two parallel roads join them: Seshadri Rd costs `6+6` and Race Course Rd costs `8+1` (average + extra).
+
+- Priority 3 (`average`): 6 against 8, so the route takes **Seshadri Rd**.
+- Priority 1 (`worst_case`): 12 against 9, so the route takes **Race Course Rd**.
+
+Same graph, same algorithm, different priority, different road. In the test city that gives 8 / 9 minutes (average / worst case) for the steady road against 6 / 12 for the quick one.
+
+### Details
+
+- **Ties:** if two ways reach a junction at the same cost, the one with the faster average time wins (except in `distance` mode).
+- **Blocked roads:** any `(from, to, road name)` in the `blocked` set is skipped. A blocked road removes only that option, so its parallel sibling can still be used. If no route remains, `find_route` returns `None`.
+- **Used twice per dispatch:** once from each free ambulance to the patient, and once from the patient to each eligible hospital. `measure_route` then replays a finished route to report its real average and worst-case time.
+- **Size:** the grid has 16 junctions, so the simple "scan every junction for the lowest cost" step is fast enough. A larger city would use a priority queue instead.
+
+### Simplifications to know about
+
+- The traffic period at a junction is looked up from the *average* arrival time along the cheapest path found so far, even in `worst_case` mode. Strictly, a time-dependent shortest path can need more than one label per junction; we keep one for simplicity.
+- Roads are assumed never to get faster by waiting, which is the usual condition for Dijkstra to stay correct with time-dependent costs. Our travel times are made up, but they respect this.
+
 ## Files
 
 | File | What it does |

@@ -48,7 +48,7 @@ No. The six questions and priority rules are a simplified example we wrote for t
 The paper models electric-vehicle routing on a **multigraph**: several arcs between the same two places, each trading time against energy. We kept the multigraph idea and used it for roads, where each arc has its own time-of-day profile. We dropped the battery and charging part. The paper is about delivery fleets, so we do not claim to extend its results.
 
 ### Which algorithm do you use?
-Dijkstra's shortest path. The cost of a road depends on the arrival time, so it is a time-dependent version, and on the priority: distance for the baseline, average time, average plus half the delay, or the worst case. When two options tie, the faster average wins.
+Dijkstra's shortest path, written by hand (not a library). It repeatedly takes the cheapest unfinished junction and tries every road out of it, including every parallel option. The cost of a road depends on the arrival time, so it is a time-dependent version, and on the priority: distance for the baseline, average time, average plus half the delay, or the worst case. When two options tie, the faster average wins. The README has a section with the full working principle and a worked example.
 
 ### Why not machine learning or live traffic data?
 For a first version, explainability matters more than a black box. A dispatcher must be able to see why an ambulance was chosen. Live traffic feeds would replace our invented times with real ones without changing the logic, and learning could later predict the delay on each road.
