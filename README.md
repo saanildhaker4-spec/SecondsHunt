@@ -1,207 +1,187 @@
-# SecondsHunt - 112 Ambulance Dispatch
+# Ambulance Dispatch - Jayanagar, Bangalore
 
-A prototype 112 emergency control room. A dispatcher enters where the emergency is and answers six triage questions (or answers them by voice). The system then picks **which ambulance** to send, **which route** it takes, and **which hospital** the patient goes to, and it explains each decision.
+A desktop control-room tool for a **112 emergency call**. The operator clicks where the emergency is on a **real map of Jayanagar, Bangalore** (OpenStreetMap), ticks the answers the caller gives to six **triage questions**, and the program chooses
 
-It was built for the Zero Hour hackathon (Optimization, Graph Theory and Intelligent Systems track). It is a demonstration on **made-up data**, not a tool for real emergencies.
+- **which ambulance** to send,
+- **which route** it takes (found with the [Dijkstar](https://pypi.org/project/Dijkstar/) routing library), and
+- **which hospital** the patient is taken to,
 
-## What is new compared with "send the nearest ambulance"
+and **explains every decision** on screen.
 
-1. **Time-dependent multigraph city.** Two neighbouring junctions can be joined by several parallel roads. Every road has a travel time that changes between night, day and rush hour, written `average+extra` (for example `6+6` means 6 minutes on average, up to 6 more in bad traffic). The idea of parallel arcs with different trade-offs comes from the multigraph model in *The Electric Vehicle Routing and Overnight Charging Scheduling Problem on a Multigraph* (Yamin, Desaulniers, Mendoza); the battery part was left out.
-2. **Priority-aware routing.** Triage gives a priority of 1, 2 or 3. Priority 1 cases take the route with the best *worst-case* time (most reliable), priority 3 cases take the fastest *average* route, and priority 2 is in between.
-3. **Hospital choice by capability.** A hospital is only considered if it has the facilities the case needs **and** a free bed. Among the rest, the best total of travel time plus waiting time wins.
-4. **Explainable decisions.** Every dispatch lists each ambulance and hospital that was considered, with the reason for each rejection, and compares the result with a "nearest by distance" baseline.
-5. **Random cities.** Every run builds a new random 4 x 4 city (junctions, roads, hospital places, beds and facilities), and a seed number replays any city.
-6. **Voice call.** The program asks the time, the location and the six triage questions aloud and listens to the answers.
+![The dispatch window](docs/screenshot.png)
 
-## How the decision works
+> **This is a prototype, not a medical or emergency-service tool.** The triage rules are a simplified example, travel times are modelled, and hospital beds and facilities are sample data (see [What is real](#what-is-real-and-what-is-not)).
 
-### Triage questions
+## Quick start
 
-| Question | A "yes" means |
+You need Python 3 with `tkinter` (included with the standard Python installer for Windows and macOS).
+
+```bash
+pip install -r requirements.txt
+python app.py
+```
+
+The voice call needs Windows (it uses the speech engine built into Windows). Everything else works on any system.
+
+## How to use it
+
+1. **Click the emergency's junction** on the map. Hospitals are the red `+` markers (the number is the free beds); ambulances are the yellow tags.
+2. **Tick the caller's answers** (a tick means "yes"). The priority and the facilities the hospital will need appear under the questions.
+3. Press **DISPATCH**. The chosen route to the patient is drawn in blue, the route to the hospital in green, and the **Dispatch** tab explains the decision, including why other hospitals were rejected and what a plain "nearest" rule would have done.
+4. Click a **road** to close it (it turns red and later routes avoid it), and click a grey **busy ambulance** when it is back in service.
+5. **VOICE CALL** asks the six questions aloud and listens to "yes" or "no" (Windows). **Fleet** shows the ambulances and lets you adjust hospital beds. **Log** keeps every call and saves it as a CSV file.
+
+Time: by default the program uses the **current time in Bangalore** to choose between night, day and rush-hour travel times. Untick the box to pick an hour yourself (for example to see the rush hour).
+
+## How it works
+
+### 1. Triage: six questions to a priority
+
+| Question | Counts as |
 |---|---|
-| Is the person conscious? | (a "no" is a danger sign) |
-| Is the person breathing normally? | (a "no" is a danger sign) |
+| Is the person conscious? | a "no" is a danger sign |
+| Is the person breathing normally? | a "no" is a danger sign |
 | Is there chest pain or pressure? | danger sign |
 | Face drooping, slurred speech or one-side weakness? | danger sign (stroke) |
 | Is there heavy bleeding that will not stop? | danger sign |
 | Was there a road accident, fall or serious injury? | injury |
 
-| Result | Priority | Route chosen by |
+| Result | Priority | Roads are priced by |
 |---|---|---|
-| One or more danger signs | 1 - life-threatening | worst-case time |
-| No danger sign, but an injury | 2 - urgent | average plus half the possible delay |
-| Neither | 3 - not urgent | average time |
+| Any danger sign | **1 - life-threatening** | worst case (usual time + possible delay) |
+| No danger sign, but an injury | **2 - urgent** | usual time + half the possible delay |
+| Neither | **3 - not urgent** | usual time |
 
-The care type is chosen in this order: injury or heavy bleeding means **accident**; stroke signs means **stroke**; chest pain, unconscious or not breathing means **cardiac**; otherwise **minor**.
+The kind of care is chosen in this order: injury or heavy bleeding means **accident**; stroke signs mean **stroke**; chest pain, unconscious or not breathing means **cardiac**; otherwise **minor**. These rules are in `ambulance/triage.py` and are a simplified example, **not a real medical protocol**; a real control room would replace them with its own.
 
-### Facilities a hospital must have
+### 2. Routing: Dijkstra with the Dijkstar library
 
-| Care type | Required facilities |
+`ambulance/routing.py` uses **Dijkstar**, a small library that implements Dijkstra's shortest-path algorithm. Three details make it fit an ambulance map:
+
+- **Multigraph.** Dijkstar keeps one edge between two junctions, but an edge can carry any data. Each edge carries the **list of roads** between its two junctions, and the cost function charges the cost of the **best** one. Where two roads join the same junctions (14 of the 57 links), the choice between them is part of the normal search.
+- **Priority and traffic.** The cost of a road depends on the priority (table above) and on the traffic period (night, day or rush hour). A road is stored as `(usual minutes, extra minutes)` per period, so the quick-but-unpredictable road and the longer-but-steady road can be told apart.
+- **Closed roads.** A closed road is left out of the graph (rebuilt only when a road is closed or opened).
+
+The traffic period is fixed when the call is taken and used for the whole journey.
+
+### 3. Hospital choice
+
+A hospital is only considered if it has the **facilities the case needs** and a **free bed**:
+
+| Care | Hospital must have |
 |---|---|
 | cardiac | cath lab, ICU |
 | stroke | stroke unit, CT scan |
 | accident | trauma unit (plus a blood bank at priority 1) |
-| minor | general |
+| minor | general care |
 
-The triage rules and facility requirements are a simplified example written for this project. **They are not a real medical protocol.**
+Among the hospitals that qualify, the lowest **travel time + time from the junction to the door + waiting time** wins. Each dispatch uses up one free bed.
 
-## How the routing works (Dijkstra on a time-dependent multigraph)
+### 4. Explanation
 
-The route finder is `find_route` in `city_engine.py`. It is **Dijkstra's shortest-path algorithm written by hand** with plain loops and dictionaries (no routing library such as NetworkX is used), extended in two ways: roads are a multigraph, and a road's cost depends on the time of day.
+Every dispatch lists each ambulance (usual and worst-case time) and each hospital (accepted with its times, or rejected with the reason, for example `rejected (no cath lab, no ICU)`), and compares the result with a plain "nearest ambulance, nearest hospital" rule.
 
-### The basic idea of Dijkstra
-
-Dijkstra finds the cheapest way from a start junction to every other junction, working outwards from the start:
-
-1. Give every junction a *cost so far*: 0 for the start, "unknown" for the rest.
-2. Pick the junction with the **lowest cost so far that is not finished yet**. Its cost can no longer be improved, because every road costs a positive amount, so any other way to reach it must pass through a junction that is at least as expensive. Mark it finished.
-3. For every road leaving that junction, work out the cost of reaching the road's other end *through this junction*. If that is cheaper than what we knew, remember the new cost and which road we used to get there.
-4. Repeat from step 2. Stop as soon as the junction we pick is the destination.
-5. Walk backwards from the destination, following the remembered roads, to rebuild the route.
-
-The code keeps these in three dictionaries: `best_cost` (cost so far), `came_from` (the road used to arrive) and `clock_at` (the time of day we arrive), plus a set `finished`.
-
-### What makes it a multigraph
-
-Between two neighbouring junctions there can be **several roads**. `roads[(a, b)]` holds a list of road options, and step 3 loops over *every* option in that list, so the cheapest option wins each time. A pair of parallel roads is built as one quick-but-unpredictable road and one longer, steady road, so the choice between them is a real decision.
-
-### What makes it time-dependent
-
-Each road stores `(average, extra)` minutes for night, day and rush hour. When the search leaves a junction it first works out the time of day we reach it (`clock_at`) and looks up the traffic period for that moment, so the same road can cost different amounts depending on when the ambulance gets there. The clock moves forward by the road's average time each step.
-
-### The cost of a road depends on the priority
-
-`road_cost` turns the `(average, extra)` pair into one number. The mode comes from the triage priority:
-
-| Mode | Cost of a road | Used for |
-|---|---|---|
-| `distance` | its length in km | the baseline ("nearest by distance") |
-| `average` | average | priority 3 |
-| `balanced` | average + extra / 2 | priority 2 |
-| `worst_case` | average + extra | priority 1 |
-
-The algorithm itself never changes; only the number each road is given does. That is how one routine serves both the baseline and the smart dispatcher.
-
-### Worked example
-
-Rush hour in the fixed city, from Race Course to Majestic. Two parallel roads join them: Seshadri Rd costs `6+6` and Race Course Rd costs `8+1` (average + extra).
-
-- Priority 3 (`average`): 6 against 8, so the route takes **Seshadri Rd**.
-- Priority 1 (`worst_case`): 12 against 9, so the route takes **Race Course Rd**.
-
-Same graph, same algorithm, different priority, different road. In the test city that gives 8 / 9 minutes (average / worst case) for the steady road against 6 / 12 for the quick one.
-
-### Details
-
-- **Ties:** if two ways reach a junction at the same cost, the one with the faster average time wins (except in `distance` mode).
-- **Blocked roads:** any `(from, to, road name)` in the `blocked` set is skipped. A blocked road removes only that option, so its parallel sibling can still be used. If no route remains, `find_route` returns `None`.
-- **Used twice per dispatch:** once from each free ambulance to the patient, and once from the patient to each eligible hospital. `measure_route` then replays a finished route to report its real average and worst-case time.
-- **Size:** the grid has 16 junctions, so the simple "scan every junction for the lowest cost" step is fast enough. A larger city would use a priority queue instead.
-
-### Simplifications to know about
-
-- The traffic period at a junction is looked up from the *average* arrival time along the cheapest path found so far, even in `worst_case` mode. Strictly, a time-dependent shortest path can need more than one label per junction; we keep one for simplicity.
-- Roads are assumed never to get faster by waiting, which is the usual condition for Dijkstra to stay correct with time-dependent costs. Our travel times are made up, but they respect this.
-
-## Real map of Jayanagar, Bangalore (OpenStreetMap) and optional Google traffic
-
-Besides the grid cities, the program has a **real city**: the Jayanagar area of South Bangalore, drawn at its real latitude and longitude with every road following its real shape.
-
-**What is real, and what is not**
+## What is real and what is not
 
 | | Source |
 |---|---|
-| Junction positions, road shapes, road names, road lengths | Real, from OpenStreetMap |
-| Which junctions are linked, and the second road on a link | Derived from the OpenStreetMap roads by `build_real_city.py` |
-| Travel times (night, day, rush hour, and the possible extra delay) | **Modelled** from road class and length, because OpenStreetMap has no traffic data |
-| Travel times, if you load them | Google traffic (optional, see below) |
-| Hospitals, beds, facilities, ambulances | **Invented** (hospital names such as "Alpha Hospital" are not real hospitals) |
+| Junctions, road shapes, road names, road lengths | **Real**, from OpenStreetMap |
+| Hospital names and positions | **Real**, from OpenStreetMap (clinics, eye, dental and maternity hospitals are filtered out) |
+| Traffic signals and speed bumps along each road | **Real**, from OpenStreetMap, and used in the travel times |
+| Travel times (night, day, rush hour, possible delay) | **Modelled**: from road class, length and the real signals, with assumed speeds and delays. OpenStreetMap has no traffic data |
+| Hospital beds, waiting times, facilities | **Sample data**. Facilities are guessed from the hospital's name (a trauma hospital gets a trauma unit); beds and waits are made up |
+| Ambulance stations | **Sample data** |
 
-One-way streets are ignored: every road is treated as two-way.
+The map files are in `data/`:
 
-**Building it (once, needs the internet, about a minute)**
+- `data/jayanagar.json` - the map built from OpenStreetMap (32 junctions, 71 roads, 16 hospitals).
+- `data/survey.json` - the **hospital survey and ambulance stations**. Replace the sample beds, waiting times, facilities and stations with real values and the program uses them (the Fleet tab then stops showing the "SAMPLE" warning once `"sample"` is set to `false`).
 
-```bash
-python build_real_city.py          # downloads Jayanagar roads, writes bangalore_city.json
-python map_112.py real             # real Jayanagar map (a new random set of hospitals each run)
-python map_112.py real 7           # replay hospitals and ambulances from seed 7
+```json
+{
+  "sample": false,
+  "hospitals": {
+    "Sri Jayadeva Institute Of Cardiology": {
+      "beds_free": 6, "wait": 20, "facilities": ["general", "cath_lab", "icu"]
+    }
+  },
+  "ambulances": [ {"name": "Ambulance 1", "base": "Outer Ring Rd & Bannerghatta Rd"} ]
+}
 ```
 
-The script picks about 30 busy intersections as junctions, names each after the two biggest roads that meet there (for example "Kanakapura Rd & 13th Cross Rd"), joins neighbouring junctions with the shortest road path that does not pass through a third junction, and adds a second, genuinely different road where one exists (these are the parallel roads of the multigraph; 14 of the 57 links get one). The download is saved in `osm_cache/` and is not committed; the program reads only `bangalore_city.json` and works offline after the build. In the map window, the **REAL BANGALORE** button loads it, and "Show every road's name and times" labels all roads.
+Facilities are `general`, `trauma_unit`, `cath_lab`, `stroke_unit`, `icu`, `blood_bank` and `ct_scan`. An ambulance `base` must be one of the junction names in `data/jayanagar.json`.
 
-Map data (c) OpenStreetMap contributors, available under the [Open Database License](https://www.openstreetmap.org/copyright).
-
-**Voice in the real city.** Road names like "9th Cross Rd & Ayodhyarama Rd" are too hard for the voice recogniser, so click the emergency's junction on the map first; the voice call then asks the time and the six questions aloud.
-
-**Google traffic (optional)**
-
-`google_traffic.py` can replace the modelled times with traffic-aware times from the Google Routes API. Google is used for this one thing only; the map and roads stay OpenStreetMap. For each road it asks for the drive between the two junctions, forced along our road with three "via" points, at 02:00, 14:00 and 09:00 on a future weekday, once as `BEST_GUESS` (the average time) and once as `PESSIMISTIC` (minus `BEST_GUESS` gives the possible extra delay). A road whose Google route is more than 30% longer or shorter than our road keeps its modelled times.
-
-To use it:
-1. In the Google Cloud console, create an API key, enable the **Routes API** and switch billing on (Google requires a billing account even for the free allowance).
-2. Put the key in the environment variable `GOOGLE_MAPS_API_KEY`, for example in PowerShell `setx GOOGLE_MAPS_API_KEY "your-key"`, then reopen the terminal. The key is read only from the environment. It is never typed into the program, printed or saved.
-3. Press **REAL BANGALORE**, then **GOOGLE TRAFFIC**. A full run sends about **426 requests** (71 roads x 3 periods x 2 traffic models). The window shows the number and asks you to confirm first, because requests are billable beyond Google's free monthly allowance. Set a budget alert in the console beforehand. Press the button again to stop.
-
-Things to know about the Google part:
-- **It is untested against the live Google API.** It was tested with mocked answers (request format, parsing, errors, stopping, the road-mismatch rule), but no real key was available, so check it with a small number of requests first.
-- The answers are kept **in memory only** and the program must fetch them again each run. Nothing from Google is saved to a file or to git, because Google's terms limit storing its data.
-- Google's terms restrict how its data may be used with a map that is not a Google map. That clause is confirmed for the older Directions API; **check the current Maps Platform terms for the Routes API yourself** before relying on this.
-- The Routes API details (field names, the `via` waypoint flag) were taken from Google's documentation and are unverified against a live call.
-
-## Files
-
-| File | What it does |
-|---|---|
-| `city_engine.py` | The brain: city and roads, route finder (Dijkstra), ambulances, hospitals, triage, dispatch decision, random city generator. Has no screen of its own. |
-| `map_112.py` | The main program: a window with a live map, clickable junctions and roads, tick boxes for the triage questions, the DISPATCH button and the VOICE CALL button. |
-| `dispatch_112.py` | The same control room as a text menu in the terminal. |
-| `ambulance_dispatch.py` | Runs eight fixed test emergencies on the fixed city and prints a table comparing the baseline with the smart dispatcher. |
-| `demo_cases.py` | Reproduces the demo cases in [DEMO.md](DEMO.md) without the window, for the fixed city and for random seeds 1, 3 and 6. |
-| `honest_numbers.py` | Measures how often the smart dispatcher beats the nearest rule over 60 random cities (the numbers in the "Honest numbers" section of [DEMO.md](DEMO.md)). |
-| `build_real_city.py` | Downloads Jayanagar roads from OpenStreetMap and builds `bangalore_city.json` (run once; see the real map section). |
-| `google_traffic.py` | Optional: replaces the modelled travel times of the real city with Google traffic times, in memory only. |
-| `voice.py`, `voice_helper.ps1` | Speaking and listening, using the speech tools built into Windows. |
-
-## Running it
-
-Requirements: Python 3 with `tkinter` (included with the standard Python installer). The voice call needs **Windows** (it uses the built-in speech engine, so nothing has to be installed and it works offline). It was tested on Python 3.15 on Windows 11.
+**Rebuilding the map** (needs the internet; the finished data files are already included):
 
 ```bash
-python map_112.py            # map window, a NEW random city every run
-python map_112.py 1          # replay the random city with seed 1
-python map_112.py default    # the fixed city
-python map_112.py real       # real Jayanagar roads (run build_real_city.py once first)
-python dispatch_112.py       # text version (same seed options)
-python ambulance_dispatch.py # baseline vs smart comparison (fixed city)
+python build_map.py
 ```
 
-In the map window:
-- Click a junction to set where the emergency is.
-- Tick the triage answers (a tick means "yes") and press **DISPATCH**.
-- Click a road to block it or open it again, and click a busy ambulance to put it back in service.
-- Move the slider to change the hour of the day.
-- **NEW RANDOM CITY** and **DEFAULT CITY** switch cities without restarting. The seed is shown under the heading.
-- **VOICE CALL** asks everything aloud. Wait for the beep, then say "yes" or "no", a time like "nine A M", or a junction name. Press the button again, or close the window, to stop.
+This downloads Jayanagar from OpenStreetMap, picks the busiest intersections as junctions, joins them with the shortest road paths, finds a second genuinely different road between junctions where one exists, and writes `data/jayanagar.json`. It never overwrites your `data/survey.json`.
 
-## Example demo cases
+Map data (c) [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the Open Database License (ODbL). `data/jayanagar.json` is derived from that data and is shared under the same licence.
 
-The full list, with how to set up each one in the window and a section of honest numbers, is in [DEMO.md](DEMO.md); `python demo_cases.py` reproduces it. A few examples:
+## Example cases
 
-All at 09:00 (rush hour). "Nearest" means the ambulance with the fewest kilometres. Times are average / worst case in minutes.
+All at 09:00 (rush hour), with the sample survey. Times are minutes: usual / worst case. "Nearest" is a plain rule: the closest ambulance and the closest hospital, ignoring facilities and beds. These cases are checked by `tests/test_demo_cases.py`.
 
-**Seed 1** (unconscious with chest pain at Orion Mall): the smart system sends Amb-5 at 7 / 9, while nearest-by-distance would send Amb-2 at 13 / 21. With stroke signs at Bangalore University, the nearest hospital (Bravo) is rejected for having no stroke unit and no CT scan, and the patient goes to Echo Hospital.
+| Case | This program | Plain "nearest" rule |
+|---|---|---|
+| **Heart attack** (unconscious, chest pain) at *Kanakapura Rd & 13th Cross Rd* | Ambulance 5, **8.8 / 10.3**, to Jayanagar heart Centre | Ambulance 1, **7.8 / 13.4**, to AMC Multispeciality Hospital, which has **no cath lab and no ICU** |
+| Same place, caller **not in danger** | Ambulance 1, **7.8 / 13.4** (the quick road is fine for a priority 3 case) | the same |
+| **Stroke** at *Bannerghatta Rd & Swagath Rd* | to NIMHANS Emergency Block | to Sagar Hospitals, which has **no stroke unit** |
+| **Minor case**, nearest hospital full, at 14:00 at *Bannerghatta Rd & New MICO Link Rd* | to NIMHANS Emergency Block | to Sree Venkateshwara Speciality Hospital, which has **no free bed** |
+| **Injury** at *Marenahalli Rd & 11th Main Rd*, then close *Ayodhyarama Rd* | **6.1 / 8.4** over Ayodhyarama Rd, then **6.5 / 8.7** by 9th Cross Rd and 24th Main Rd | (the same, the roads differ only when closed) |
 
-**Seed 3** (unconscious with chest pain at Richmond Circle): Amb-5 at 11 / 13 against Amb-1 at 12 / 19. With stroke signs at Richmond Circle, Echo Hospital is rejected (no CT scan, no free bed) and the patient goes to Alpha Hospital.
+## How much difference does the priority make?
 
-**Fixed city** (`python map_112.py default`, or `python ambulance_dispatch.py` for the full table): unconscious with chest pain at Majestic takes the steadier Race Course Rd (8 / 9) instead of the quicker-on-average Seshadri Rd (6 / 12), and goes to Manyata Heart because Majestic General has no cath lab. A stroke at Palace Grounds in the evening rush gets Amb-2 at 7 / 9, against 16 / 27 for nearest-by-distance.
+Priority 1 prices roads by their worst case, priority 3 by their usual time. Over all 496 pairs of junctions in rush hour:
+
+- the two priorities choose **different roads in 114 pairs (23%)**;
+- in **53** of those the reliable road has a clearly better worst case (on average 1.3 minutes, up to 4.3 minutes), and in none is it worse;
+- choosing the reliable road costs 0.5 minutes of usual time on average (at most 3.0 minutes).
+
+So the effect is real but modest, and it rests on **modelled** variability (the assumed delay of each real traffic signal). With real traffic data the numbers would change. These results are on synthetic travel times and are not measurements of real Bangalore traffic.
+
+## Project layout
+
+```
+app.py                  start the program
+build_map.py            rebuild the map data from OpenStreetMap
+requirements.txt        Dijkstar
+ambulance/
+    mapdata.py          loads the map and the survey into a "world" dictionary
+    routing.py          routes with Dijkstar (multigraph, priority pricing, closed roads)
+    triage.py           the questions, priorities and facility needs
+    dispatch.py         picks the ambulance, route and hospital, and explains why
+    voice.py            spoken questions (Windows), voice_helper.ps1
+    gui.py              the desktop window
+data/                   jayanagar.json (map), survey.json (hospital survey, sample)
+tests/                  117 automated tests
+docs/screenshot.png
+```
+
+The code uses plain functions, lists and dictionaries; there are no classes.
+
+Run the tests with:
+
+```bash
+python -m unittest discover
+```
+
+They check the triage rules for all 64 answer combinations, compare Dijkstar's routes with an independent calculation (on a small test map and on the real map, with and without closed roads), test the hospital rules and the call log, validate the shipped map data, replay the example cases above, test the voice code (including real speech recognition on Windows) and drive the window.
 
 ## Limitations
 
-- **All data is made up.** Junction and road names are real Bangalore names in the fixed city, but the layout is a simplified grid and the travel times, ambulances and hospitals are invented. Hospital names are invented on purpose. In a random city the road and junction names no longer match real geography.
-- The results show the method working on test data. They are not measurements of real Bangalore traffic.
-- Calls are handled one at a time. There is no queue where a priority 1 call overtakes a waiting priority 3 call.
-- A dispatched ambulance jumps straight to its hospital and shows as busy there; it does not move along its route.
-- The ambulance is chosen by time to the patient only, not by the whole trip to the hospital.
-- "Worst case" is the average plus the possible delay on each road, not a real probability.
-- In the real city the travel times are modelled (unless Google traffic is loaded), one-way streets are ignored, and the hospitals are invented.
-- Voice recognition uses an American English engine, so some junction names may need repeating. The tick boxes always work as a fallback.
+- **Hospital beds, waiting times, facilities and ambulance stations are sample data.** Hospital names and positions are real, but the capabilities shown for them are not, and must never be read as facts about those hospitals.
+- Travel times are **modelled**, not live; one-way streets are ignored; the map has 32 junctions, so a hospital is attached to its nearest junction and a short "door" time is added.
+- The triage questions and rules are a simplified example, not a clinical protocol.
+- Calls are handled one at a time: a busy ambulance is skipped by later calls, but there is no queue in which an urgent call overtakes a waiting one. A dispatched ambulance is shown at its starting junction until you mark it back in service, where it reappears at the hospital.
+- The traffic period is fixed at the time of the call.
+- There is no live traffic feed. Road closures are entered by hand.
+- The voice call needs Windows, uses an American-English recogniser, and understands only "yes" and "no".
+
+## Credits
+
+- Map data: (c) OpenStreetMap contributors (ODbL).
+- Routing: the [Dijkstar](https://pypi.org/project/Dijkstar/) library.

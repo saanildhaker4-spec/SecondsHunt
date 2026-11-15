@@ -1,0 +1,194 @@
+{
+  "note": "SAMPLE data. Facilities are a guess from each hospital's name (for example a trauma hospital gets a trauma unit); beds and waiting times are random. Replace them with a real survey of each hospital, and the stations with the real ambulance bases.",
+  "sample": true,
+  "hospitals": {
+    "AMC Multispeciality Hospital": {
+      "beds_free": 4,
+      "wait": 11,
+      "facilities": [
+        "general",
+        "stroke_unit"
+      ]
+    },
+    "Big Hospitals": {
+      "beds_free": 6,
+      "wait": 14,
+      "facilities": [
+        "general",
+        "trauma_unit",
+        "icu",
+        "ct_scan"
+      ]
+    },
+    "ESI Hospital": {
+      "beds_free": 3,
+      "wait": 18,
+      "facilities": [
+        "general",
+        "cath_lab",
+        "blood_bank"
+      ]
+    },
+    "Jayanagar General Hospital": {
+      "beds_free": 3,
+      "wait": 8,
+      "facilities": [
+        "general",
+        "stroke_unit",
+        "icu",
+        "ct_scan"
+      ]
+    },
+    "Jayanagar heart Centre": {
+      "beds_free": 5,
+      "wait": 7,
+      "facilities": [
+        "general",
+        "cath_lab",
+        "icu",
+        "stroke_unit",
+        "blood_bank"
+      ]
+    },
+    "NIMHANS Emergency Block": {
+      "beds_free": 1,
+      "wait": 6,
+      "facilities": [
+        "general",
+        "stroke_unit",
+        "ct_scan",
+        "icu",
+        "cath_lab"
+      ]
+    },
+    "National Institute of Mental Health and Neuro Sciences": {
+      "beds_free": 5,
+      "wait": 16,
+      "facilities": [
+        "general",
+        "stroke_unit",
+        "ct_scan",
+        "icu",
+        "blood_bank"
+      ]
+    },
+    "Rajalakshmi Multispeciality Hospital": {
+      "beds_free": 1,
+      "wait": 6,
+      "facilities": [
+        "general",
+        "trauma_unit",
+        "ct_scan"
+      ]
+    },
+    "Rajshekhar Hospital": {
+      "beds_free": 3,
+      "wait": 20,
+      "facilities": [
+        "general",
+        "cath_lab",
+        "ct_scan"
+      ]
+    },
+    "Ramakrishna Nursing Home and Hospital": {
+      "beds_free": 4,
+      "wait": 19,
+      "facilities": [
+        "general",
+        "cath_lab",
+        "stroke_unit",
+        "ct_scan"
+      ]
+    },
+    "Sagar Hospitals": {
+      "beds_free": 6,
+      "wait": 8,
+      "facilities": [
+        "general",
+        "blood_bank",
+        "ct_scan"
+      ]
+    },
+    "Sanjay Gandhi Accident and Trauma Hospital": {
+      "beds_free": 5,
+      "wait": 11,
+      "facilities": [
+        "general",
+        "trauma_unit",
+        "blood_bank",
+        "icu",
+        "ct_scan"
+      ]
+    },
+    "Sevakshetra Hospital, Bengaluru Urban": {
+      "beds_free": 6,
+      "wait": 5,
+      "facilities": [
+        "general",
+        "trauma_unit",
+        "stroke_unit",
+        "icu",
+        "blood_bank",
+        "ct_scan"
+      ]
+    },
+    "Sree Venkateshwara Speciality Hospital": {
+      "beds_free": 0,
+      "wait": 19,
+      "facilities": [
+        "general",
+        "trauma_unit",
+        "stroke_unit",
+        "icu"
+      ]
+    },
+    "Sri Jayadeva Institute Of Cardiology": {
+      "beds_free": 6,
+      "wait": 20,
+      "facilities": [
+        "general",
+        "cath_lab",
+        "icu",
+        "stroke_unit"
+      ]
+    },
+    "Trinity Hospital and Heart Foundation": {
+      "beds_free": 4,
+      "wait": 15,
+      "facilities": [
+        "general",
+        "cath_lab",
+        "icu",
+        "trauma_unit",
+        "stroke_unit",
+        "ct_scan"
+      ]
+    }
+  },
+  "ambulances": [
+    {
+      "name": "Ambulance 1",
+      "base": "14th Cross Rd & Krishna Rajendra Rd"
+    },
+    {
+      "name": "Ambulance 2",
+      "base": "Bannerghatta Rd & New MICO Link Rd"
+    },
+    {
+      "name": "Ambulance 3",
+      "base": "Bannerghatta Rd & 9th Cross Rd"
+    },
+    {
+      "name": "Ambulance 4",
+      "base": "9th Cross Rd & Ayodhyarama Rd"
+    },
+    {
+      "name": "Ambulance 5",
+      "base": "Swagath Rd & 8th Main Rd"
+    },
+    {
+      "name": "Ambulance 6",
+      "base": "Ashoka Pillar Circle & T. Mariyappa Rd"
+    }
+  ]
+}

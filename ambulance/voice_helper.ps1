@@ -4,7 +4,7 @@
 #  Uses the speech tools that are built into Windows:
 #    -Say      text to speak aloud
 #    -Choices  the answers to listen for, separated by |
-#    -Seconds  how long to wait for the caller to start talking
+#    -Seconds  how long to wait for the caller to answer
 #    -Wave     (testing only) listen to a .wav file, not the microphone
 #
 #  It prints one line:   HEARD|<what it heard>|<confidence 0 to 1>
