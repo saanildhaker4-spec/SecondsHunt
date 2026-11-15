@@ -111,6 +111,8 @@ Same graph, same algorithm, different priority, different road. In the test city
 | `map_112.py` | The main program: a window with a live map, clickable junctions and roads, tick boxes for the triage questions, the DISPATCH button and the VOICE CALL button. |
 | `dispatch_112.py` | The same control room as a text menu in the terminal. |
 | `ambulance_dispatch.py` | Runs eight fixed test emergencies on the fixed city and prints a table comparing the baseline with the smart dispatcher. |
+| `demo_cases.py` | Reproduces the demo cases in [DEMO.md](DEMO.md) without the window, for the fixed city and for random seeds 1, 3 and 6. |
+| `honest_numbers.py` | Measures how often the smart dispatcher beats the nearest rule over 60 random cities (the numbers in the "Honest numbers" section of [DEMO.md](DEMO.md)). |
 | `voice.py`, `voice_helper.ps1` | Speaking and listening, using the speech tools built into Windows. |
 
 ## Running it
@@ -134,6 +136,8 @@ In the map window:
 - **VOICE CALL** asks everything aloud. Wait for the beep, then say "yes" or "no", a time like "nine A M", or a junction name. Press the button again, or close the window, to stop.
 
 ## Example demo cases
+
+The full list, with how to set up each one in the window and a section of honest numbers, is in [DEMO.md](DEMO.md); `python demo_cases.py` reproduces it. A few examples:
 
 All at 09:00 (rush hour). "Nearest" means the ambulance with the fewest kilometres. Times are average / worst case in minutes.
 
