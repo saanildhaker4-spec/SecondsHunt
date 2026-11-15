@@ -12,9 +12,12 @@
 #  Everything here is still plain functions, lists and dictionaries.
 # =====================================================================
 
+import math
 import tkinter as tk
 from city_engine import *
 import voice                      # speaking and listening (voice.py)
+import google_traffic             # optional Google traffic times (google_traffic.py)
+from tkinter import messagebox
 
 
 # ---------------------------------------------------------------------
@@ -24,14 +27,58 @@ import voice                      # speaking and listening (voice.py)
 positions = {}
 
 
+view = {}               # how latitude / longitude become pixels (real city only)
+
+
+def setup_view():
+    """Work out how to turn latitude and longitude into pixels so that
+    the whole real city fits in the window."""
+    lats = []
+    lngs = []
+    for name in geo:
+        lats.append(geo[name][0])
+        lngs.append(geo[name][1])
+    for key in roads:
+        for option in roads[key]:
+            if option["shape"] is not None:
+                for lat, lng in option["shape"]:
+                    lats.append(lat)
+                    lngs.append(lng)
+    view["south"] = min(lats)
+    view["north"] = max(lats)
+    view["west"] = min(lngs)
+    view["cos"] = math.cos(math.radians((min(lats) + max(lats)) / 2))
+    width_m = (max(lngs) - min(lngs)) * 111320 * view["cos"]
+    height_m = (max(lats) - min(lats)) * 110574
+    canvas_width = int(canvas.cget("width"))
+    canvas_height = int(canvas.cget("height"))
+    scale = min((canvas_width - 210) / width_m, (canvas_height - 150) / height_m)
+    view["scale"] = scale
+    view["left"] = (canvas_width - width_m * scale) / 2
+    view["top"] = 75 + ((canvas_height - 150) - height_m * scale) / 2
+
+
+def project(lat, lng):
+    """Latitude and longitude -> (x, y) pixels on the map."""
+    x = view["left"] + (lng - view["west"]) * 111320 * view["cos"] * view["scale"]
+    y = view["top"] + (view["north"] - lat) * 110574 * view["scale"]
+    return x, y
+
+
 def update_positions():
-    """Work out where each junction is drawn, from its grid slot.
-    (The grid slots come from city_engine.py and can change when a
-    new random city is made.)"""
+    """Work out where each junction is drawn. In the grid cities this
+    comes from the grid slot; in the real city from latitude and
+    longitude. (Both come from city_engine.py and change when a new
+    city is made.)"""
     positions.clear()
-    for name in places:
-        row, column = slot_of[name]
-        positions[name] = (90 + 200 * column, 100 + 160 * row)
+    if city_info["kind"] == "real":
+        setup_view()
+        for name in places:
+            positions[name] = project(geo[name][0], geo[name][1])
+    else:
+        for name in places:
+            row, column = slot_of[name]
+            positions[name] = (90 + 200 * column, 100 + 160 * row)
 
 # things the program needs to remember while the window is open
 state = {
@@ -41,6 +88,8 @@ state = {
     "in_call": False,   # True while a voice call is running
     "stop": False,      # True when the voice call has been told to stop
     "closed": False,    # True once the window has been closed
+    "fetching": False,  # True while Google traffic times are being fetched
+    "google_stop": False,   # True when that fetch has been told to stop
 }
 
 # clickable[item_number] = ("place", name) or ("road", (a, b, name))
@@ -177,18 +226,163 @@ def draw_ambulances():
         clickable[label] = ("ambulance", name)
 
 
+# ---- drawing the REAL city: roads follow their real shapes ----------
+placed_boxes = []       # boxes of the labels already drawn (so new labels avoid them)
+
+
+def box_is_free(box):
+    if box[0] < 2 or box[1] < 2 or box[2] > int(canvas.cget("width")) - 2 \
+            or box[3] > int(canvas.cget("height")) - 22:
+        return False                     # it would run off the map
+    for other in placed_boxes:
+        if not (box[2] < other[0] or box[0] > other[2] or box[3] < other[1] or box[1] > other[3]):
+            return False
+    return True
+
+
+def place_text(x, y, text, colour, size, gap, background="white", bold=False):
+    """Write a label next to the point (x, y), at the first spot where it
+    does not cover another label. Returns the two canvas items (box, text)."""
+    # (anchor, dx, dy): the label goes right, left, above, below, then the corners
+    spots = [("w", gap, 0), ("e", -gap, 0), ("s", 0, -gap), ("n", 0, gap),
+             ("sw", gap, -gap), ("se", -gap, -gap), ("nw", gap, gap), ("ne", -gap, gap)]
+    weight = "bold" if bold else "normal"
+    chosen = None
+    for anchor, dx, dy in spots:
+        item = canvas.create_text(x + dx, y + dy, text=text, fill=colour, anchor=anchor,
+                                  font=("Segoe UI", size, weight))
+        box = canvas.bbox(item)
+        if box_is_free(box):
+            chosen = item
+            break
+        canvas.delete(item)
+    if chosen is None:                  # nowhere is free: use the first spot anyway
+        anchor, dx, dy = spots[0]
+        chosen = canvas.create_text(x + dx, y + dy, text=text, fill=colour, anchor=anchor,
+                                    font=("Segoe UI", size, weight))
+        box = canvas.bbox(chosen)
+    placed_boxes.append(box)
+    background_box = canvas.create_rectangle(box, fill=background, outline="")
+    canvas.tag_raise(chosen, background_box)
+    return background_box, chosen
+
+
+def draw_real_roads():
+    period = get_period(get_clock())
+    show_all = (show_labels.get() == 1)
+    done = set()
+    drawn = []                           # (colour, width, points, key, option)
+    for key in roads:
+        a, b = key
+        if (b, a) in done:
+            continue
+        done.add((a, b))
+        for option in roads[key]:
+            colour, width = road_colour(a, b, option["name"])
+            if colour == "#9aa0a6":
+                width = 3
+            elif colour == "#d62828":
+                width = 5
+            else:
+                width = 6
+            points = []
+            for lat, lng in option["shape"]:
+                x, y = project(lat, lng)
+                points.append(x)
+                points.append(y)
+            drawn.append((colour, width, points, key, option))
+    # grey roads first, so the coloured route is drawn on top of them
+    for special in [False, True]:
+        for colour, width, points, key, option in drawn:
+            if (colour != "#9aa0a6") != special:
+                continue
+            a, b = key
+            line = canvas.create_line(*points, fill=colour, width=width,
+                                      capstyle="round", joinstyle="round")
+            clickable[line] = ("road", (a, b, option["name"]))
+            if special or show_all:
+                middle = len(points) // 4 * 2
+                average, extra = option["times"][period]
+                text = option["name"] + "  " + str(average) + "+" + str(extra)
+                if (a, b, option["name"]) in blocked:
+                    text = option["name"] + "  BLOCKED"
+                draw_label(points[middle], points[middle + 1], text, "#333333", "center", 7)
+
+
+def draw_real_markers():
+    """Junctions, their names, hospitals and ambulances of the real city."""
+    placed_boxes.clear()
+    hospital_at = {}
+    for name in hospitals:
+        hospital_at[hospitals[name]["at"]] = name
+    # junction circles first, so that labels keep clear of them
+    for name in places:
+        x, y = positions[name]
+        if name == state["place"]:
+            fill, edge, width = "#ffd6d6", "#d62828", 3
+        elif name in hospital_at:
+            fill, edge, width = "#ffffff", "#b00020", 3
+        else:
+            fill, edge, width = "#ffffff", "#333333", 2
+        circle = canvas.create_oval(x - 7, y - 7, x + 7, y + 7, fill=fill, outline=edge, width=width)
+        clickable[circle] = ("place", name)
+        placed_boxes.append((x - 8, y - 8, x + 8, y + 8))
+    for name in places:
+        x, y = positions[name]
+        # long names are written on two lines: "A & B" becomes "A" and "& B"
+        label = name.replace(" & ", "\n& ")
+        background, text = place_text(x, y, label, "#111111", 8, 10, bold=True)
+        clickable[background] = ("place", name)
+        clickable[text] = ("place", name)
+    for name in hospitals:
+        hospital = hospitals[name]
+        x, y = positions[hospital["at"]]
+        codes = []
+        for facility in sorted(hospital["facilities"]):
+            if facility != "general":
+                codes.append(facility_short[facility])
+        if len(codes) == 0:
+            codes.append("general only")
+        short_name = name.replace(" Hospital", "")
+        place_text(x, y, "[H] " + short_name + " - " + str(hospital["beds_free"]) + " beds\n"
+                   + " ".join(codes), "#b00020", 7, 11)
+    for name in ambulances:
+        x, y = positions[ambulances[name]]
+        if name in busy:
+            colour, text = "#c8c8c8", name + " busy"
+        else:
+            colour, text = "#ffd23f", name + " free"
+        background, label = place_text(x, y, text, "#111111", 7, 11, background=colour)
+        clickable[background] = ("ambulance", name)
+        clickable[label] = ("ambulance", name)
+
+
 def draw_map():
     """Wipe the map and draw everything again."""
     canvas.delete("all")
     clickable.clear()
     update_positions()
-    draw_roads()
-    draw_junctions()
-    draw_hospitals()
-    draw_ambulances()
-    canvas.create_text(430, 693, fill="#555555", font=("Segoe UI", 9),
-                       text="Road numbers: average + possible delay, in minutes."
-                            "   Blue: to patient.   Green: to hospital.   Red: blocked.")
+    if city_info["kind"] == "real":
+        draw_real_roads()
+        draw_real_markers()
+        google_roads = city_info.get("google_roads", 0)
+        if google_roads > 0:
+            times_text = ("Travel times: Google traffic for " + str(google_roads) + " of "
+                          + str(len(google_traffic.road_options())) + " roads, modelled for the rest.")
+        else:
+            times_text = "Travel times are MODELLED, not measured."
+        canvas.create_text(430, 686, fill="#555555", font=("Segoe UI", 8),
+                           text="Roads (c) OpenStreetMap contributors (ODbL). " + times_text)
+        canvas.create_text(430, 700, fill="#555555", font=("Segoe UI", 8),
+                           text="Blue: to patient.   Green: to hospital.   Red: blocked.")
+    else:
+        draw_roads()
+        draw_junctions()
+        draw_hospitals()
+        draw_ambulances()
+        canvas.create_text(430, 693, fill="#555555", font=("Segoe UI", 9),
+                           text="Road numbers: average + possible delay, in minutes."
+                                "   Blue: to patient.   Green: to hospital.   Red: blocked.")
     clock = get_clock()
     time_label.config(text="Time " + show_clock(clock) + "  (" + get_period(clock) + " traffic)")
     if state["place"] is None:
@@ -334,7 +528,12 @@ def end_voice_call():
 
 def city_summary_lines():
     """The hospitals of the current city, as lines of text."""
-    lines = ["HOSPITALS in this city:"]
+    lines = []
+    if city_info["kind"] == "real":
+        lines = ["Roads: real, from OpenStreetMap (c) contributors (ODbL).",
+                 "Travel times: MODELLED from road class and length, not measured.",
+                 "Hospitals and ambulances are invented.", ""]
+    lines = lines + ["HOSPITALS in this city:"]
     for name in hospitals:
         hospital = hospitals[name]
         lines.append("  " + name + " at " + hospital["at"] + ": "
@@ -348,6 +547,10 @@ def show_city_info():
     window.title("112 Emergency Response - Dispatch Console  (" + describe_city() + ")")
     if city_info["kind"] == "random":
         hint = "   (python map_112.py " + str(city_info["seed"]) + "  replays it)"
+    elif city_info["kind"] == "real":
+        hint = "   (python map_112.py real " + str(city_info["seed"]) + ")"
+        if city_info.get("google_roads", 0) > 0:
+            hint = hint + "  Google traffic: " + str(city_info["google_roads"]) + " roads"
     else:
         hint = "   (python map_112.py default)"
     city_label.config(text="City: " + describe_city() + hint)
@@ -367,6 +570,101 @@ def on_new_city():
     if state["in_call"]:
         return
     random_city(new_seed())
+    after_city_change()
+
+
+GOOGLE_BUTTON_TEXT = "GOOGLE TRAFFIC  (real city, needs your key)"
+
+
+def google_progress(done, total):
+    """Called after each Google request."""
+    if state["closed"]:
+        return
+    if done % 5 == 0 or done == total:
+        write(["Asking Google for traffic times...",
+               str(done) + " of " + str(total) + " requests done.",
+               "Press the button again to stop."])
+    window.update()                   # keeps the window alive (and the stop button working)
+
+
+def on_google_traffic():
+    """GOOGLE TRAFFIC button: replace the modelled times with Google's."""
+    if state["fetching"]:
+        state["google_stop"] = True       # the running fetch will notice this
+        return
+    if city_info["kind"] != "real":
+        write(["Google traffic works only in the real city.",
+               "Press REAL BANGALORE first."])
+        return
+    key = google_traffic.get_key()
+    if key is None:
+        write(["No Google key was found.",
+               "1. In the Google Cloud console, create an API key and enable the",
+               "   Routes API (billing must be switched on).",
+               "2. Store it in the environment variable GOOGLE_MAPS_API_KEY, for",
+               "   example in PowerShell:  setx GOOGLE_MAPS_API_KEY \"your-key\"",
+               "3. Close and reopen the terminal, then start this program again.",
+               "Never paste the key into this program, a file or a chat."])
+        return
+    count = google_traffic.count_requests()
+    question = ("This sends about " + str(count) + " Google Routes API requests "
+                "(traffic-aware).\n\nThey are BILLABLE beyond Google's free monthly "
+                "allowance. Set a budget alert in your Google Cloud console first.\n\n"
+                "The times are kept in memory only; nothing from Google is saved.\n\n"
+                "Continue?")
+    if not messagebox.askyesno("Google Maps Platform", question):
+        return
+
+    state["fetching"] = True
+    state["google_stop"] = False
+    google_button.config(text="STOP GOOGLE TRAFFIC")
+    write(["Asking Google for traffic times..."])
+    result = None
+    problem = None
+    try:
+        result = google_traffic.fetch_traffic(
+            key, google_progress, lambda: state["google_stop"] or state["closed"])
+    except google_traffic.GoogleError as error:
+        problem = str(error)
+    state["fetching"] = False
+    state["google_stop"] = False
+    if state["closed"]:
+        return                            # the window is gone: touch nothing
+    google_button.config(text=GOOGLE_BUTTON_TEXT)
+
+    google_roads = 0
+    for a, b, option in google_traffic.road_options():
+        if option["source"] == "google":
+            google_roads = google_roads + 1
+    city_info["google_roads"] = google_roads
+    lines = []
+    if problem is not None:
+        lines = ["Google problem: " + problem, "The roads that were not updated keep their modelled times.", ""]
+    elif result["stopped"]:
+        lines = ["Stopped. Roads done so far keep Google's times.", ""]
+    if result is not None:
+        lines = lines + ["Google traffic times now used for " + str(google_roads) + " of "
+                         + str(len(google_traffic.road_options())) + " roads.",
+                         "Kept modelled times: " + str(result["different_road"])
+                         + " roads where Google used a different road, "
+                         + str(result["no_route"]) + " with no route.",
+                         "Requests sent: " + str(result["requests"]) + "."]
+    write(lines)
+    show_city_info()
+    draw_map()
+
+
+def on_real_city():
+    """REAL BANGALORE button."""
+    if state["in_call"]:
+        return
+    try:
+        real_city(new_seed())
+    except FileNotFoundError:
+        write(["bangalore_city.json was not found.",
+               "Run  python build_real_city.py  once (it needs the internet),",
+               "then press this button again."])
+        return
     after_city_change()
 
 
@@ -391,6 +689,11 @@ def on_voice_call():
     if state["in_call"]:
         state["stop"] = True          # the running call will notice this
         return
+    if city_info["kind"] == "real" and state["place"] is None:
+        write(["In the real city, click the emergency's junction on the map first.",
+               "Then press VOICE CALL: it asks the time and the six questions aloud.",
+               "(Road names are too hard for the voice recogniser.)"])
+        return
     state["in_call"] = True
     voice_button.config(text="STOP VOICE CALL")
     missed = []                       # questions that were not understood
@@ -412,8 +715,13 @@ def on_voice_call():
         hour_slider.set(hour)
     draw_map()
 
-    # 2. the place
-    place = voice.ask_place("Where is the emergency?", places, keep_window_alive)
+    # 2. the place (in the real city it was chosen by clicking the map,
+    # because road names like "9th Cross Rd & Ayodhyarama Rd" are too
+    # hard for the voice recogniser)
+    if city_info["kind"] == "real":
+        place = state["place"]
+    else:
+        place = voice.ask_place("Where is the emergency?", places, keep_window_alive)
     if state["stop"]:
         end_voice_call()
         return
@@ -479,7 +787,8 @@ panel.pack(side="right", fill="y", padx=8, pady=8)
 tk.Label(panel, text="112 DISPATCH CONSOLE", font=("Segoe UI", 15, "bold"),
          fg="#b00020").pack(anchor="w")
 
-city_label = tk.Label(panel, text="", font=("Segoe UI", 9), fg="#555555")
+city_label = tk.Label(panel, text="", font=("Segoe UI", 9), fg="#555555",
+                      wraplength=470, justify="left")
 city_label.pack(anchor="w")
 
 time_label = tk.Label(panel, text="", font=("Segoe UI", 11, "bold"))
@@ -488,6 +797,10 @@ hour_slider = tk.Scale(panel, from_=0, to=23, orient="horizontal", length=380,
                        label="Hour of the day")
 hour_slider.set(9)
 hour_slider.pack(anchor="w")
+
+show_labels = tk.IntVar(value=0)
+tk.Checkbutton(panel, text="Show every road's name and times (real city)",
+               variable=show_labels, command=lambda: draw_map()).pack(anchor="w")
 
 place_label = tk.Label(panel, text="", font=("Segoe UI", 11, "bold"))
 place_label.pack(anchor="w", pady=(10, 0))
@@ -512,13 +825,17 @@ voice_button.pack(fill="x", pady=(0, 4))
 
 city_row = tk.Frame(panel)
 city_row.pack(fill="x", pady=(0, 8))
-tk.Button(city_row, text="NEW RANDOM CITY", command=on_new_city).pack(
+tk.Button(city_row, text="RANDOM CITY", command=on_new_city).pack(
     side="left", expand=True, fill="x", padx=(0, 4))
 tk.Button(city_row, text="DEFAULT CITY", command=on_default_city).pack(
+    side="left", expand=True, fill="x", padx=(0, 4))
+tk.Button(city_row, text="REAL BANGALORE", command=on_real_city).pack(
     side="left", expand=True, fill="x")
+google_button = tk.Button(panel, text=GOOGLE_BUTTON_TEXT, command=on_google_traffic)
+google_button.pack(fill="x", pady=(0, 8))
 window.protocol("WM_DELETE_WINDOW", on_close)     # what the X button does
 
-message_box = tk.Text(panel, width=62, height=14, font=("Consolas", 9), wrap="word")
+message_box = tk.Text(panel, width=62, height=12, font=("Consolas", 9), wrap="word")
 scroll_bar = tk.Scrollbar(panel, command=message_box.yview)
 message_box.config(yscrollcommand=scroll_bar.set)
 scroll_bar.pack(side="right", fill="y")

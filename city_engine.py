@@ -15,8 +15,15 @@
 #  different grid edges, and the hospitals get random places, beds and
 #  facilities. A random city is made from a "seed" number: the same
 #  seed always gives the same city, so a good city can be replayed.
+#
+#  There is also a REAL city (real_city): about 30 Bangalore junctions
+#  and the roads between them, taken from OpenStreetMap by the script
+#  build_real_city.py. Positions, road shapes, names and lengths are
+#  real; travel times are MODELLED (OpenStreetMap has no traffic data).
 # =====================================================================
 
+import json
+import os
 import random
 import sys
 
@@ -30,16 +37,21 @@ import sys
 roads = {}              # the road network
 places = []             # junction names, in grid order (row by row)
 slot_of = {}            # junction name -> (row, column) on the grid
+geo = {}                # junction name -> (latitude, longitude), real city only
 
 GRID = 4                # the grid is 4 x 4
 
 
-def add_road(a, b, name, km, night, day, rush):
-    """Add a two-way road between junctions a and b."""
+def add_road(a, b, name, km, night, day, rush, shape=None, source="fixed"):
+    """Add a two-way road between junctions a and b.
+    shape = list of [latitude, longitude] points (real city only).
+    source = where the times come from: "fixed", "modelled" or "google"."""
     option = {
         "name": name,
         "km": km,
         "times": {"night": night, "day": day, "rush": rush},
+        "shape": shape,
+        "source": source,
     }
     for key in [(a, b), (b, a)]:
         if key not in roads:
@@ -212,7 +224,7 @@ def measure_route(route, start_clock):
                 average, extra = option["times"][period]
                 average_time = average_time + average
                 worst_time = worst_time + average + extra
-    return average_time, worst_time
+    return round(average_time, 1), round(worst_time, 1)
 
 
 def show_route(route):
@@ -397,7 +409,7 @@ def smart_dispatch(place, emergency_type, priority, clock):
             reasons.append("   " + name + " : no open road to the patient")
             continue
         average, worst = measure_route(route, clock)
-        reasons.append("   " + name + " at " + ambulances[name] + " : " + str(cost)
+        reasons.append("   " + name + " at " + ambulances[name] + " : " + str(round(cost, 1))
                        + " min (average " + str(average) + ")")
         # lowest cost wins; if two are tied, the faster average wins
         if best_cost is None or cost < best_cost or (cost == best_cost and average < best_average):
@@ -424,8 +436,8 @@ def smart_dispatch(place, emergency_type, priority, clock):
         if cost is None:
             continue
         score = cost + hospitals[name]["wait"]
-        reasons.append("   " + name + " : travel " + str(cost) + " + wait "
-                       + str(hospitals[name]["wait"]) + " = " + str(score) + " min")
+        reasons.append("   " + name + " : travel " + str(round(cost, 1)) + " + wait "
+                       + str(hospitals[name]["wait"]) + " = " + str(round(score, 1)) + " min")
         if best_score is None or score < best_score:
             best_hospital, best_score, best_route2 = name, score, route
 
@@ -464,6 +476,7 @@ def put_roads_on_grid(names, bundles):
     roads.clear()
     places[:] = names
     slot_of.clear()
+    geo.clear()
     for slot in range(len(names)):
         slot_of[names[slot]] = (slot // GRID, slot % GRID)
     edge_number = 0
@@ -571,9 +584,47 @@ def new_seed():
     return random.randrange(1000, 10000)
 
 
+def real_city(seed):
+    """The real Bangalore city from bangalore_city.json (made by
+    build_real_city.py). The roads are real; the hospitals are invented
+    and placed at random junctions, like in a random city."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bangalore_city.json")
+    with open(path, encoding="utf-8") as file:           # FileNotFoundError if not built yet
+        data = json.load(file)
+
+    roads.clear()
+    places[:] = [junction["name"] for junction in data["junctions"]]
+    slot_of.clear()
+    geo.clear()
+    for junction in data["junctions"]:
+        geo[junction["name"]] = (junction["lat"], junction["lng"])
+    for edge in data["edges"]:
+        for option in edge["options"]:
+            times = option["times"]
+            add_road(edge["a"], edge["b"], option["name"], option["km"],
+                     tuple(times["night"]), tuple(times["day"]), tuple(times["rush"]),
+                     option["shape"], option["source"])
+
+    rng = random.Random(seed)
+    make_random_hospitals(rng)
+    reset_control_room()
+    ambulances.clear()
+    spots = rng.sample(places, 6)                         # six ambulances, random junctions
+    number = 1
+    for spot in spots:
+        ambulances["Amb-" + str(number)] = spot
+        number = number + 1
+    city_info["kind"] = "real"
+    city_info["seed"] = seed
+    city_info["attribution"] = data["attribution"]
+    city_info["google_roads"] = 0                 # roads whose times came from Google
+
+
 def describe_city():
     if city_info["kind"] == "default":
         return "fixed default city"
+    if city_info["kind"] == "real":
+        return "real Bangalore roads, seed " + str(city_info["seed"])
     return "random city, seed " + str(city_info["seed"])
 
 
@@ -581,9 +632,21 @@ def start_city():
     """Choose the city when a program starts, from the command line:
          python map_112.py          -> a NEW random city every run
          python map_112.py 4821     -> replay the random city with seed 4821
-         python map_112.py default  -> the fixed city"""
+         python map_112.py default  -> the fixed city
+         python map_112.py real     -> real Bangalore roads (after build_real_city.py)
+         python map_112.py real 7   -> the same, with hospitals from seed 7"""
     arguments = sys.argv
-    if len(arguments) > 1 and arguments[1] == "default":
+    if len(arguments) > 1 and arguments[1] == "real":
+        seed = new_seed()
+        if len(arguments) > 2 and arguments[2].isdigit():
+            seed = int(arguments[2])
+        try:
+            real_city(seed)
+        except FileNotFoundError:
+            print("bangalore_city.json not found. Run  python build_real_city.py  first.")
+            print("Starting with a random city instead.")
+            random_city(new_seed())
+    elif len(arguments) > 1 and arguments[1] == "default":
         default_city()
     elif len(arguments) > 1 and arguments[1].isdigit():
         random_city(int(arguments[1]))

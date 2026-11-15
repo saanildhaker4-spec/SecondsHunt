@@ -212,6 +212,7 @@ def main():
         print("   6. Change the time")
         print("   7. Call log")
         print("   8. New random city")
+        print("   9. Real Bangalore roads (needs build_real_city.py)")
         print("   0. Exit")
         answer = input(" Choose: ").strip()
 
@@ -234,6 +235,16 @@ def main():
             call_log.clear()
             print(" NEW CITY: " + describe_city())
             show_hospitals()
+        elif answer == "9":
+            try:
+                real_city(new_seed())
+            except FileNotFoundError:
+                print(" bangalore_city.json not found. Run  python build_real_city.py  first.")
+            else:
+                call_log.clear()
+                print(" NEW CITY: " + describe_city())
+                print(" Roads are real (OpenStreetMap contributors, ODbL); travel times are MODELLED.")
+                show_hospitals()
         elif answer == "0":
             print(" Console closed.")
             break

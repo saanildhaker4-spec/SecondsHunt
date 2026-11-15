@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+osm_cache/
+google_*.json
+*.log

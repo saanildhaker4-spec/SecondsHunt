@@ -103,6 +103,51 @@ Same graph, same algorithm, different priority, different road. In the test city
 - The traffic period at a junction is looked up from the *average* arrival time along the cheapest path found so far, even in `worst_case` mode. Strictly, a time-dependent shortest path can need more than one label per junction; we keep one for simplicity.
 - Roads are assumed never to get faster by waiting, which is the usual condition for Dijkstra to stay correct with time-dependent costs. Our travel times are made up, but they respect this.
 
+## Real map of Jayanagar, Bangalore (OpenStreetMap) and optional Google traffic
+
+Besides the grid cities, the program has a **real city**: the Jayanagar area of South Bangalore, drawn at its real latitude and longitude with every road following its real shape.
+
+**What is real, and what is not**
+
+| | Source |
+|---|---|
+| Junction positions, road shapes, road names, road lengths | Real, from OpenStreetMap |
+| Which junctions are linked, and the second road on a link | Derived from the OpenStreetMap roads by `build_real_city.py` |
+| Travel times (night, day, rush hour, and the possible extra delay) | **Modelled** from road class and length, because OpenStreetMap has no traffic data |
+| Travel times, if you load them | Google traffic (optional, see below) |
+| Hospitals, beds, facilities, ambulances | **Invented** (hospital names such as "Alpha Hospital" are not real hospitals) |
+
+One-way streets are ignored: every road is treated as two-way.
+
+**Building it (once, needs the internet, about a minute)**
+
+```bash
+python build_real_city.py          # downloads Jayanagar roads, writes bangalore_city.json
+python map_112.py real             # real Jayanagar map (a new random set of hospitals each run)
+python map_112.py real 7           # replay hospitals and ambulances from seed 7
+```
+
+The script picks about 30 busy intersections as junctions, names each after the two biggest roads that meet there (for example "Kanakapura Rd & 13th Cross Rd"), joins neighbouring junctions with the shortest road path that does not pass through a third junction, and adds a second, genuinely different road where one exists (these are the parallel roads of the multigraph; 14 of the 57 links get one). The download is saved in `osm_cache/` and is not committed; the program reads only `bangalore_city.json` and works offline after the build. In the map window, the **REAL BANGALORE** button loads it, and "Show every road's name and times" labels all roads.
+
+Map data (c) OpenStreetMap contributors, available under the [Open Database License](https://www.openstreetmap.org/copyright).
+
+**Voice in the real city.** Road names like "9th Cross Rd & Ayodhyarama Rd" are too hard for the voice recogniser, so click the emergency's junction on the map first; the voice call then asks the time and the six questions aloud.
+
+**Google traffic (optional)**
+
+`google_traffic.py` can replace the modelled times with traffic-aware times from the Google Routes API. Google is used for this one thing only; the map and roads stay OpenStreetMap. For each road it asks for the drive between the two junctions, forced along our road with three "via" points, at 02:00, 14:00 and 09:00 on a future weekday, once as `BEST_GUESS` (the average time) and once as `PESSIMISTIC` (minus `BEST_GUESS` gives the possible extra delay). A road whose Google route is more than 30% longer or shorter than our road keeps its modelled times.
+
+To use it:
+1. In the Google Cloud console, create an API key, enable the **Routes API** and switch billing on (Google requires a billing account even for the free allowance).
+2. Put the key in the environment variable `GOOGLE_MAPS_API_KEY`, for example in PowerShell `setx GOOGLE_MAPS_API_KEY "your-key"`, then reopen the terminal. The key is read only from the environment. It is never typed into the program, printed or saved.
+3. Press **REAL BANGALORE**, then **GOOGLE TRAFFIC**. A full run sends about **426 requests** (71 roads x 3 periods x 2 traffic models). The window shows the number and asks you to confirm first, because requests are billable beyond Google's free monthly allowance. Set a budget alert in the console beforehand. Press the button again to stop.
+
+Things to know about the Google part:
+- **It is untested against the live Google API.** It was tested with mocked answers (request format, parsing, errors, stopping, the road-mismatch rule), but no real key was available, so check it with a small number of requests first.
+- The answers are kept **in memory only** and the program must fetch them again each run. Nothing from Google is saved to a file or to git, because Google's terms limit storing its data.
+- Google's terms restrict how its data may be used with a map that is not a Google map. That clause is confirmed for the older Directions API; **check the current Maps Platform terms for the Routes API yourself** before relying on this.
+- The Routes API details (field names, the `via` waypoint flag) were taken from Google's documentation and are unverified against a live call.
+
 ## Files
 
 | File | What it does |
@@ -113,6 +158,8 @@ Same graph, same algorithm, different priority, different road. In the test city
 | `ambulance_dispatch.py` | Runs eight fixed test emergencies on the fixed city and prints a table comparing the baseline with the smart dispatcher. |
 | `demo_cases.py` | Reproduces the demo cases in [DEMO.md](DEMO.md) without the window, for the fixed city and for random seeds 1, 3 and 6. |
 | `honest_numbers.py` | Measures how often the smart dispatcher beats the nearest rule over 60 random cities (the numbers in the "Honest numbers" section of [DEMO.md](DEMO.md)). |
+| `build_real_city.py` | Downloads Jayanagar roads from OpenStreetMap and builds `bangalore_city.json` (run once; see the real map section). |
+| `google_traffic.py` | Optional: replaces the modelled travel times of the real city with Google traffic times, in memory only. |
 | `voice.py`, `voice_helper.ps1` | Speaking and listening, using the speech tools built into Windows. |
 
 ## Running it
@@ -123,6 +170,7 @@ Requirements: Python 3 with `tkinter` (included with the standard Python install
 python map_112.py            # map window, a NEW random city every run
 python map_112.py 1          # replay the random city with seed 1
 python map_112.py default    # the fixed city
+python map_112.py real       # real Jayanagar roads (run build_real_city.py once first)
 python dispatch_112.py       # text version (same seed options)
 python ambulance_dispatch.py # baseline vs smart comparison (fixed city)
 ```
@@ -155,4 +203,5 @@ All at 09:00 (rush hour). "Nearest" means the ambulance with the fewest kilometr
 - A dispatched ambulance jumps straight to its hospital and shows as busy there; it does not move along its route.
 - The ambulance is chosen by time to the patient only, not by the whole trip to the hospital.
 - "Worst case" is the average plus the possible delay on each road, not a real probability.
+- In the real city the travel times are modelled (unless Google traffic is loaded), one-way streets are ignored, and the hospitals are invented.
 - Voice recognition uses an American English engine, so some junction names may need repeating. The tick boxes always work as a fallback.
